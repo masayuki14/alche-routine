@@ -1,4 +1,4 @@
-
+#!/usr/bin/ruby
 # -*- coding: utf-8 -*-
 require 'rubygems'
 require 'net/ssh'
@@ -7,7 +7,7 @@ require 'net/scp'
 require 'yaml'
 require 'pp'
 
-module  AlchemiaRoutine
+module  Routine
   def config
     YAML::load_file('config.yml')
   end
@@ -15,9 +15,57 @@ end
 
 #== アルケミアサーバーに入り、動画変換プログラムを実行し
 #   コンテンツサーバーに転送する
-class AlchemiaRoutine::Alchemia
+class Routine::Alchemia
+  class App
+    class << self
+      include Routine
+      def run
+        alchemia = config['account']['alchemia']
+        Net::SSH.start(alchemia['host'], alchemia['user'], :password => alchemia['password']) do |ssh|
+
+          # 処理対象のディレクトリを特定
+          dirs = Array.new
+          ls = ssh.exec! 'ls -l'
+          ls.each_line do |line|
+            entry = line.split(' ').last
+            if entry =~ /\d{6}app/
+              dirs << entry
+            end
+          end
+
+          if dirs.max.nil?
+            puts '処理対象のディレクトリがありませんでした'
+            puts 'プログラムを終了します'
+            return
+          end
+
+          # ファイル転送
+          okimax = config['account']['okimax']
+          command =  sprintf("scp -r ~/%s/* %s@%s:~/alcheapk/", dirs.max, okimax['user'], okimax['host'])
+          puts command
+          ssh.open_channel do |channel|
+            channel.request_pty
+            channel.exec command do |ch, success|
+              channel.on_data do |ch, data|
+                puts data
+                if data =~ /password/
+                  puts 'send password'
+                  channel.send_data okimax['password']
+                  channel.send_data "\n"
+                end
+              end
+              channel.on_close { |ch| puts 'scp finished.' }
+            end
+          end
+
+          ssh.loop
+        end
+      end
+    end
+  end
+
   class << self # class methods
-    include AlchemiaRoutine
+    include Routine
     def run
       alchemia = config['account']['alchemia']
       Net::SSH.start(alchemia['host'], alchemia['user'], :password => alchemia['password']) do |ssh|
@@ -41,21 +89,12 @@ class AlchemiaRoutine::Alchemia
         command = "php MP4Box.php #{dirs.max}"
         pp command
         ssh.exec! command
-        #ssh.shell do |sh|
-        #  command = "php MP4Box.php #{dirs.max}"
-        #  pp command
-        #  php = sh.execute command
-        #  sh.execute "exit"
-        #end
 
         # sun.oki-max.netに動画を転送する
         okimax = config['account']['okimax']
         command =  sprintf("scp -r ~/tmp/* %s@%s:~/video/", okimax['user'], okimax['host'])
         ssh.open_channel do |channel|
-          channel.request_pty do |ch, success|
-            pp 'request pty'
-          end
-
+          channel.request_pty
           channel.exec command do |ch, success|
             channel.on_data do |ch, data|
               puts data
@@ -65,10 +104,7 @@ class AlchemiaRoutine::Alchemia
                 channel.send_data "\n"
               end
             end
-
-            channel.on_close do |ch|
-              pp 'channel is closeing'
-            end
+            channel.on_close { |ch| puts 'scp finished.' }
           end
         end
 
@@ -80,9 +116,10 @@ end
 
 #== コンテンツサーバーにファイル転送し
 #   登録プログラムを実行する
-class AlchemiaRoutine::SunOkimax
+class Routine::SunOkimax
   class << self
-    include AlchemiaRoutine
+    include Routine
+    # データファイル(CSV)をアップロード
     def upload
       pp 'upload alche.csv'
       okimax = config['account']['okimax']
@@ -91,19 +128,28 @@ class AlchemiaRoutine::SunOkimax
       end
     end
 
+    def upload_apk
+      puts 'upload alche.apk.csv'
+      okimax = config['account']['okimax']
+      Net::SCP.start(okimax['host'], okimax['user'], :password => okimax['password']) do |scp|
+        scp.upload! 'alche.apk.csv', 'bin/apk/alche.csv'
+      end
+    end
+
     # 動画出力先を空にする
     def clean
       okimax = config['account']['okimax']
-      pp okimax
       Net::SSH.start(okimax['host'], okimax['user'], :password => okimax['password']) do |ssh|
         puts 'rm -rf video/*'
         ssh.exec! 'rm -rf video/*'
-        #ssh.shell('bash --norc --noprifile') do |sh|
-        #  sh.execute 'cd video'
-        #  sh.execute 'rm -rf *'
-        #  sh.execute 'exit'
-        #end
-        ssh.loop
+      end
+    end
+
+    def clean_apk
+      okimax = config['account']['okimax']
+      Net::SSH.start(okimax['host'], okimax['user'], :password => okimax['password']) do |ssh|
+        puts 'rm -rf alcheapk/*'
+        ssh.exec! 'rm -rf alcheapk/*'
       end
     end
 
@@ -113,9 +159,20 @@ class AlchemiaRoutine::SunOkimax
       Net::SSH.start(okimax['host'], okimax['user'], :password => okimax['password']) do |ssh|
         ssh.shell do |sh|
           sh.execute 'cd bin'
-          p = sh.execute 'php alche.php'
-          puts "Exit Status:#{p.exit_status}"
-          puts "Command Executed:#{p.command}"
+          sh.execute 'php alche.php'
+          sh.execute 'exit'
+        end
+        ssh.loop
+      end
+    end
+
+    def run_apk
+      okimax = config['account']['okimax']
+      Net::SSH.start(okimax['host'], okimax['user'], :password => okimax['password']) do |ssh|
+        ssh.shell do |sh|
+          sh.execute 'cd bin/apk'
+          sh.execute 'php alche.php'
+          sh.execute 'php alche_media.php'
           sh.execute 'exit'
         end
         ssh.loop
@@ -125,23 +182,48 @@ class AlchemiaRoutine::SunOkimax
 end
 
 #== Shift_JISのCSVファイルを読み込んでヘッダ以外をUTF8に変換して出力
-class AlchemiaRoutine::Local
+class Routine::Local
   class << self
-    def convert
-      rfp = File.open('alche.origin.csv', 'r', :external_encoding => Encoding::Shift_JIS, :internal_encoding => Encoding::UTF_8)
-      wfp = File.open('alche.csv', 'w', :external_encoding => Encoding::UTF_8)
+    def convert(readfile, writefile)
+      rfp = File.open(readfile, 'r', :external_encoding => Encoding::Shift_JIS, :internal_encoding => Encoding::UTF_8)
+      wfp = File.open(writefile, 'w', :external_encoding => Encoding::UTF_8)
       rfp.gets
       while line = rfp.gets
         wfp.write(line)
       end
     end
   end
+
+  class Movie < Routine::Local
+    class << self
+      def convert
+        super('alche.origin.csv', 'alche.csv')
+        #end
+      end
+    end
+  end
+
+  class App < Routine::Local
+    class << self
+      def convert
+        super('alche.apk.origin.csv', 'alche.apk.csv')
+      end
+    end
+  end
 end
 
-AlchemiaRoutine::Local::convert
-AlchemiaRoutine::SunOkimax::clean
-AlchemiaRoutine::SunOkimax::upload
-AlchemiaRoutine::Alchemia::run
-AlchemiaRoutine::SunOkimax::run
+# 動画登録処理
+Routine::Local::Movie::convert
+Routine::SunOkimax::clean
+Routine::SunOkimax::upload
+Routine::Alchemia::run
+Routine::SunOkimax::run
+
+# アプリ登録処理
+Routine::Local::App.convert
+Routine::SunOkimax.clean_apk
+Routine::SunOkimax.upload_apk
+Routine::Alchemia::App.run
+Routine::SunOkimax.run_apk
 
 __END__
