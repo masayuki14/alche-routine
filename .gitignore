@@ -25,3 +25,5 @@ doc/
 # local
 *.csv
 config.yml
+Gemfile.lock
+vendor/*
