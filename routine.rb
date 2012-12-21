@@ -5,7 +5,6 @@ require 'net/ssh'
 require 'net/ssh/shell'
 require 'net/scp'
 require 'yaml'
-require 'pp'
 
 module  Routine
   def config
@@ -87,12 +86,13 @@ class Routine::Alchemia
         end
 
         command = "php MP4Box.php #{dirs.max}"
-        pp command
+        puts command
         ssh.exec! command
 
         # sun.oki-max.netに動画を転送する
         okimax = config['account']['okimax']
         command =  sprintf("scp -r ~/tmp/* %s@%s:~/video/", okimax['user'], okimax['host'])
+        puts command
         ssh.open_channel do |channel|
           channel.request_pty
           channel.exec command do |ch, success|
@@ -121,42 +121,30 @@ class Routine::SunOkimax
     include Routine
     # データファイル(CSV)をアップロード
     def upload
-      pp 'upload alche.csv'
-      okimax = config['account']['okimax']
-      Net::SCP.start(okimax['host'], okimax['user'], :password => okimax['password']) do |scp|
-        scp.upload! 'alche.csv', 'bin/'
-      end
+      puts 'upload alche.csv'
+      scp_start { |scp| scp.upload!('alche.csv', 'bin/') }
     end
 
     def upload_apk
       puts 'upload alche.apk.csv'
-      okimax = config['account']['okimax']
-      Net::SCP.start(okimax['host'], okimax['user'], :password => okimax['password']) do |scp|
-        scp.upload! 'alche.apk.csv', 'bin/apk/alche.csv'
-      end
+      scp_start { |scp| scp.upload!('alche.apk.csv', 'bin/apk/alche.csv') }
     end
 
     # 動画出力先を空にする
     def clean
-      okimax = config['account']['okimax']
-      Net::SSH.start(okimax['host'], okimax['user'], :password => okimax['password']) do |ssh|
-        puts 'rm -rf video/*'
-        ssh.exec! 'rm -rf video/*'
-      end
+      puts 'rm -rf video/*'
+      ssh_start { |ssh| ssh.exec! 'rm -rf video/*' }
     end
 
     def clean_apk
-      okimax = config['account']['okimax']
-      Net::SSH.start(okimax['host'], okimax['user'], :password => okimax['password']) do |ssh|
-        puts 'rm -rf alcheapk/*'
-        ssh.exec! 'rm -rf alcheapk/*'
-      end
+      puts 'rm -rf alcheapk/*'
+      ssh_start { |ssh| ssh.exec! 'rm -rf alcheapk/*' }
     end
 
     # 動画登録
     def run
-      okimax = config['account']['okimax']
-      Net::SSH.start(okimax['host'], okimax['user'], :password => okimax['password']) do |ssh|
+      puts 'php alche.php'
+      ssh_start do |ssh|
         ssh.shell do |sh|
           sh.execute 'cd bin'
           sh.execute 'php alche.php'
@@ -167,8 +155,7 @@ class Routine::SunOkimax
     end
 
     def run_apk
-      okimax = config['account']['okimax']
-      Net::SSH.start(okimax['host'], okimax['user'], :password => okimax['password']) do |ssh|
+      ssh_start do |ssh|
         ssh.shell do |sh|
           sh.execute 'cd bin/apk'
           sh.execute 'php alche.php'
@@ -178,7 +165,26 @@ class Routine::SunOkimax
         ssh.loop
       end
     end
+
+    private
+
+    def okimax
+      config['account']['okimax']
+    end
+
+    def ssh_start
+      Net::SSH.start(okimax['host'], okimax['user'], :password => okimax['password']) do |ssh|
+        yield ssh
+      end
+    end
+
+    def scp_start
+      Net::SCP.start(okimax['host'], okimax['user'], :password => okimax['password']) do |scp|
+        yield scp
+      end
+    end
   end
+
 end
 
 #== Shift_JISのCSVファイルを読み込んでヘッダ以外をUTF8に変換して出力
@@ -198,7 +204,6 @@ class Routine::Local
     class << self
       def convert
         super('alche.origin.csv', 'alche.csv')
-        #end
       end
     end
   end
