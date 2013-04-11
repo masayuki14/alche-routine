@@ -108,6 +108,11 @@ class Routine::Alchemia
           end
         end
 
+        puts "rm -rf #{dirs.max}"
+        ssh.exec! "rm -rf #{dirs.max}"
+        puts "rm -rf tmp/*"
+        ssh.exec! "rm -rf tmp/*"
+
         ssh.loop
       end
     end
