@@ -27,7 +27,7 @@ class Routine::Alchemia
           ls = ssh.exec! 'ls -l'
           ls.each_line do |line|
             entry = line.split(' ').last
-            if entry =~ /\d{6}app/
+            if entry =~ /^\d{8}app$/
               dirs << entry
             end
           end
@@ -38,9 +38,14 @@ class Routine::Alchemia
             return
           end
 
+          # バックアップ作成
+          command = sprintf("cp -rf ~/%s ~/bak.%s", dirs.max, dirs.max)
+          puts command
+          ssh.exec! command
+
           # ファイル転送
           okimax = config['account']['okimax']
-          command =  sprintf("scp -r ~/%s/* %s@%s:~/alcheapk/", dirs.max, okimax['user'], okimax['host'])
+          command = sprintf("scp -r ~/%s/* %s@%s:~/alcheapk/", dirs.max, okimax['user'], okimax['host'])
           puts command
           ssh.open_channel do |channel|
             channel.request_pty
@@ -74,7 +79,7 @@ class Routine::Alchemia
         ls = ssh.exec! 'ls -l'
         ls.each_line do |line|
           entry = line.split(' ').last
-          if entry =~ /\d{6}/
+          if entry =~ /^\d{8}$/
             dirs << entry
           end
         end
@@ -84,6 +89,11 @@ class Routine::Alchemia
           puts 'プログラムを終了します'
           return
         end
+
+        # バックアップ作成
+        command = sprintf("cp -rf ~/%s ~/bak.%s", dirs.max, dirs.max)
+        puts command
+        ssh.exec! command
 
         command = "php MP4Box.php #{dirs.max}"
         puts command
