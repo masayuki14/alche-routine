@@ -15,6 +15,8 @@ end
 #== アルケミアサーバーに入り、動画変換プログラムを実行し
 #   コンテンツサーバーに転送する
 class Routine::Alchemia
+
+  # 独自アプリ登録の処理
   class App
     class << self
       include Routine
@@ -22,7 +24,8 @@ class Routine::Alchemia
         alchemia = config['account']['alchemia']
         Net::SSH.start(alchemia['host'], alchemia['user'], :password => alchemia['password']) do |ssh|
 
-          # 処理対象のディレクトリを特定
+          # 日付が新しいディレクトリを処理対象とする
+          # ex. 20130301app より 20130411app が対象となる
           dirs = Array.new
           ls = ssh.exec! 'ls -l'
           ls.each_line do |line|
@@ -43,7 +46,7 @@ class Routine::Alchemia
           puts command
           ssh.exec! command
 
-          # ファイル転送
+          # sun.oki-max.net にアプリを転送する
           okimax = config['account']['okimax']
           command = sprintf("scp -r ~/%s/* %s@%s:~/alcheapk/", dirs.max, okimax['user'], okimax['host'])
           puts command
@@ -68,13 +71,18 @@ class Routine::Alchemia
     end
   end
 
+  # 独自動画登録の処理
   class << self # class methods
     include Routine
     def run
       alchemia = config['account']['alchemia']
       Net::SSH.start(alchemia['host'], alchemia['user'], :password => alchemia['password']) do |ssh|
 
-        # 処理対象のディレクトリを探し動画変換を実行
+        puts "rm -rf tmp/*"
+        ssh.exec! "rm -rf tmp/*"
+
+        # 日付が新しいディレクトリ探し動画変換を実行する
+        # ex. 20130303 より 20130418 が対象となる
         dirs = Array.new
         ls = ssh.exec! 'ls -l'
         ls.each_line do |line|
@@ -95,11 +103,13 @@ class Routine::Alchemia
         puts command
         ssh.exec! command
 
+        # 動画変換プログラムを実行
+        # 変換データは ~/tmp ディレクトリに出力される
         command = "php MP4Box.php #{dirs.max}"
         puts command
         ssh.exec! command
 
-        # sun.oki-max.netに動画を転送する
+        # sun.oki-max.net に動画を転送する
         okimax = config['account']['okimax']
         command =  sprintf("scp -r ~/tmp/* %s@%s:~/video/", okimax['user'], okimax['host'])
         puts command
@@ -117,9 +127,6 @@ class Routine::Alchemia
             channel.on_close { |ch| puts 'scp finished.' }
           end
         end
-
-        puts "rm -rf tmp/*"
-        ssh.exec! "rm -rf tmp/*"
 
         ssh.loop
       end
@@ -154,7 +161,7 @@ class Routine::SunOkimax
       ssh_start { |ssh| ssh.exec! 'rm -rf alcheapk/*' }
     end
 
-    # 動画登録
+    # DBに動画情報を登録するプログラムを実行する
     def run
       puts 'php alche.php'
       ssh_start do |ssh|
