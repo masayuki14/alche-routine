@@ -1,0 +1,9 @@
+account:
+  alchemia:
+    host: hostname
+    user: username
+    password: password
+  okimax:
+    host: hostname
+    user: username
+    password: password
